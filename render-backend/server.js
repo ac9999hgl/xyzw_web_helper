@@ -10,6 +10,7 @@ import cron from "node-cron";
 import { createApiKeyMiddleware } from "./lib/apiKeyAuth.js";
 import { GameClient } from "./lib/gameClient.js";
 import { refreshSessionFromBin } from "./lib/authRefresh.js";
+import { claimDailyRewards } from "./lib/dailyRewards.js";
 
 dotenv.config();
 
@@ -39,8 +40,9 @@ const TASK_DEFINITIONS = {
     commands: [{ cmd: "system_claimhangupreward", params: {} }],
   },
   claimDaily: {
-    name: "领取日常奖励",
-    commands: [{ cmd: "task_claimdailyreward", params: { rewardId: 0 } }],
+    name: "领取日常奖励(动态)",
+    dynamic: true,
+    commands: [],
   },
   claimDailyPoint: {
     name: "领取每日积分",
@@ -92,7 +94,7 @@ const TASK_DEFINITIONS = {
   addHangUpTime: {
     name: "一键加钟",
     commands: [
-      { cmd: "system_mysharecallback", params: { isSkipShareCard: true, type: 2 } },
+      { cmd: "system_mysharecallback", params: { isSkipShareCard: true, type: 2 }, repeat: 4 },
     ],
   },
   heroRecruit: {
@@ -221,24 +223,30 @@ async function executeTask(task) {
     return;
   }
 
-  // 收集所有需要执行的命令（去重）
+  // 收集所有需要执行的命令（去重）；dynamic 任务走独立动态分支
   const allCommands = [];
   const seenCmds = new Set();
+  const dynamicKeys = [];
   for (const key of taskKeys) {
     const taskDef = TASK_DEFINITIONS[key];
     if (!taskDef) {
       addLog("WARN", "task", `未知任务类型: ${key}，跳过`, { taskId: task.id });
       continue;
     }
+    if (taskDef.dynamic) {
+      dynamicKeys.push(key);
+      continue;
+    }
     for (const cmd of taskDef.commands) {
       const cmdKey = cmd.cmd + JSON.stringify(cmd.params);
-      if (!seenCmds.has(cmdKey)) {
+      const repeat = Number(cmd.repeat) > 1;
+      if (repeat || !seenCmds.has(cmdKey)) {
         seenCmds.add(cmdKey);
         allCommands.push(cmd);
       }
     }
   }
-  if (allCommands.length === 0) {
+  if (allCommands.length === 0 && dynamicKeys.length === 0) {
     addLog("ERROR", "task", "没有有效的命令可执行", { taskId: task.id });
     return;
   }
@@ -314,7 +322,36 @@ async function executeTask(task) {
     };
 
     const runBatch = async () => {
-      const results = await client.executeBatch(allCommands, 800);
+      const results = [];
+      if (allCommands.length > 0) {
+        results.push(...(await client.executeBatch(allCommands, 800)));
+      }
+      // 动态任务：日常积分奖励按服务端可领档位逐个领取
+      if (dynamicKeys.includes("claimDaily")) {
+        try {
+          const dyn = await claimDailyRewards(client);
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `task_claimdailyreward:${r.rewardId}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+          if (dyn.ids.length === 0) {
+            results.push({
+              cmd: "task_claimdailyreward",
+              success: true,
+              note: "无可领取档位",
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "task_claimdailyreward",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
       for (const r of results) {
         const logLevel = r.success ? "INFO" : "ERROR";
         addLog(

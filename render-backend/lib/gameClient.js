@@ -349,16 +349,19 @@ class GameClient {
 
   async executeBatch(commands, delayMs = 500) {
     const results = [];
-    for (const { cmd, params, timeout } of commands) {
-      try {
-        const r = await this.sendWithPromise(cmd, params, timeout || 8000);
-        results.push({ cmd, success: true, data: r });
-        this.log("成功:", cmd);
-      } catch (err) {
-        results.push({ cmd, success: false, error: err.message });
-        this.log("失败:", cmd, err.message);
+    for (const { cmd, params, timeout, repeat } of commands) {
+      const times = Number(repeat) > 0 ? Number(repeat) : 1;
+      for (let i = 0; i < times; i++) {
+        try {
+          const r = await this.sendWithPromise(cmd, params, timeout || 8000);
+          results.push({ cmd, success: true, data: r });
+          this.log("成功:", cmd);
+        } catch (err) {
+          results.push({ cmd, success: false, error: err.message });
+          this.log("失败:", cmd, err.message);
+        }
+        if (delayMs > 0) await sleep(delayMs);
       }
-      if (delayMs > 0) await sleep(delayMs);
     }
     return results;
   }
