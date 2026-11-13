@@ -330,6 +330,12 @@ async function executeTask(task) {
       if (dynamicKeys.includes("claimDaily")) {
         try {
           const dyn = await claimDailyRewards(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 日常积分: points=${dyn.points} 档位=${dyn.rewardsCount} 可领=[${dyn.ids.join(",")}]`,
+            { taskId: task.id },
+          );
           for (const r of dyn.results) {
             results.push({
               cmd: `task_claimdailyreward:${r.rewardId}`,

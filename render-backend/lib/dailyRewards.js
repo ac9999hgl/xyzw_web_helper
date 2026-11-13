@@ -87,5 +87,10 @@ export async function claimDailyRewards(client) {
     }
     await sleep(500);
   }
-  return { ids, points: dailyTask?.dailyPoint, results };
+  return {
+    ids,
+    points: dailyTask?.dailyPoint,
+    rewardsCount: dailyRewards.length,
+    results,
+  };
 }
