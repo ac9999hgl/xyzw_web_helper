@@ -70,7 +70,9 @@ const CMD_DEFAULTS = {
   arena_getarearank: {},
   item_openbox: { itemId: 2001, number: 10 },
   bottlehelper_start: { bottleType: -1 },
+  bottlehelper_stop: { bottleType: -1 },
   bottlehelper_claim: {},
+  system_mysharecallback: { isSkipShareCard: true, type: 2 },
   legacy_getinfo: {},
   legacy_claimhangup: {},
   hero_recruit: { byClub: false, recruitNumber: 1, recruitType: 3 },
@@ -116,6 +118,7 @@ const RESP_MAP = {
   item_openboxresp: "item_openbox",
   bottlehelper_claimresp: "bottlehelper_claim",
   bottlehelper_startresp: "bottlehelper_start",
+  bottlehelper_stopresp: "bottlehelper_stop",
   legacy_getinforesp: "legacy_getinfo",
   legacy_claimhangupresp: "legacy_claimhangup",
   hero_recruitresp: "hero_recruit",
@@ -145,6 +148,7 @@ const RESP_MAP = {
     "discount_claimreward",
   ],
   syncpushresp: ["system_mysharecallback"],
+  syncresp: ["system_mysharecallback", "task_claimdailypoint"],
 };
 
 class GameClient {

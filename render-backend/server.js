@@ -78,6 +78,23 @@ const TASK_DEFINITIONS = {
       { cmd: "legacy_claimhangup", params: {} },
     ],
   },
+  claimBottle: {
+    name: "领取罐子",
+    commands: [{ cmd: "bottlehelper_claim", params: {} }],
+  },
+  resetBottle: {
+    name: "重置罐子",
+    commands: [
+      { cmd: "bottlehelper_stop", params: {} },
+      { cmd: "bottlehelper_start", params: { bottleType: -1 } },
+    ],
+  },
+  addHangUpTime: {
+    name: "一键加钟",
+    commands: [
+      { cmd: "system_mysharecallback", params: { isSkipShareCard: true, type: 2 } },
+    ],
+  },
   heroRecruit: {
     name: "武将招募",
     commands: [
