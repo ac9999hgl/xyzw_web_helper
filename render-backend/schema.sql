@@ -16,9 +16,13 @@ create table if not exists public.tokens (
   "connId"    text,                                  -- 连接 ID
   "isRestore" boolean default false,                 -- 是否恢复连接
   "ws_url"    text,                                  -- WebSocket 地址
+  "bin_b64"   text,                                  -- BIN 登录原件 base64（长期凭证，用于会话过期后自动换新 roleToken；可空）
   enabled     boolean default true,                  -- 是否启用
   "created_at" timestamptz default now()
 );
+
+-- 已存在的旧库补列（幂等）
+alter table public.tokens add column if not exists "bin_b64" text;
 
 create index if not exists tokens_enabled_idx on public.tokens (enabled);
 

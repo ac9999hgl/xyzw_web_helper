@@ -143,6 +143,7 @@ class GameClient {
 
     this.ws = null;
     this.connected = false;
+    this.lastFatal = null;
     this.ack = 0;
     this.seq = 0;
     this.promises = {};
@@ -370,6 +371,24 @@ class GameClient {
     const msg = protoMsg._raw;
     if (!msg) return;
     if (typeof msg.seq === "number" && msg.seq >= 0) this.ack = msg.seq;
+
+    // 服务端鉴权拒绝帧（如 token expired）：记录原因、拒绝挂起请求并断开，
+    // 由上层据此判断是否用 BIN 自动刷新会话后重连。
+    if (msg.cmd === "_sys/fatal") {
+      const fatal = { code: msg.code, error: msg.error || "fatal" };
+      this.lastFatal = fatal;
+      this.log("服务端拒绝:", fatal.error);
+      this._rejectPendingRequests(new Error(fatal.error));
+      this.connected = false;
+      this._stopHeartbeat();
+      try {
+        this.ws?.close();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
 
     const respKey = msg.resp !== undefined ? msg.resp : msg.cmd;
     const respCmdKey = respKey?.toLowerCase?.() || respKey;

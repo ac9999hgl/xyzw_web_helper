@@ -8,8 +8,8 @@
 // 备份结构（src/utils/fullBackup.js）：
 //   localStorage.gameTokens                      JSON 字符串，TokenData[]
 //   indexedDB.xyzw_token_db.gameTokens           数组，同结构
-//   indexedDB.xyzw.tokens                         BIN 登录凭据原件（ArrayBuffer），
-//                                                 本脚本不读取，后端只接收已转换的 token 串。
+//   indexedDB.xyzw.tokens                         BIN 登录凭据原件（ArrayBuffer，备份里为 base64），
+//                                                 按角色 id 关联随会话串一并落库，供后端自动刷新会话。
 //
 // 用法：
 //   1) 先在本地前端「备份 / 恢复」页点「备份」，下载 xyzw_full_backup_YYYY-MM-DD.json
@@ -113,6 +113,19 @@ const idb = backup.indexedDB || {};
 const idbTokens = idb.xyzw_token_db?.gameTokens;
 if (Array.isArray(idbTokens)) idbTokens.forEach(pushRecord);
 
+// indexedDB.xyzw.tokens：BIN 登录原件（ArrayBuffer，备份里编码为 base64）。
+// 按前端 token id 与角色记录关联，随会话串一并落库，供后端在 token expired 时自动换新会话。
+const binByTokenId = new Map();
+const binRecords = idb.xyzw?.tokens;
+if (Array.isArray(binRecords)) {
+  for (const rec of binRecords) {
+    const data = rec?.data;
+    if (data && data.__xyzwType === "ArrayBuffer" && data.b64) {
+      binByTokenId.set(rec.id, data.b64);
+    }
+  }
+}
+
 console.log(`解析到 ${records.length} 条角色记录${dryRun ? "（dry-run，不发送）" : ""}`);
 if (records.length === 0) {
   console.error("备份里没有可用的角色记录（gameTokens 为空）。请先在本地前端登录角色后再导出备份。");
@@ -139,6 +152,7 @@ const importedIds = [];   // 本次新录入的 id
 for (const rec of records) {
   const cred = parseCred(rec.token) || {};
   const roleId = rec.roleId ?? cred.roleId ?? null;
+  const binB64 = binByTokenId.get(rec.id) || null;
   const body = {
     name: rec.name || String(roleId || "未命名角色"),
     token: rec.token,
@@ -147,13 +161,30 @@ for (const rec of records) {
     connId: cred.connId ?? null,
     isRestore: Boolean(cred.isRestore ?? false),
     ws_url: rec.wsUrl || null,
+    bin_b64: binB64,
     enabled: true,
   };
 
   const dup = existingByToken.has(rec.token) || (roleId != null && existingByRoleId.has(String(roleId)));
   if (dup) {
     const existingRow = existing.find((t) => t.token === rec.token || String(t.roleId) === String(roleId));
-    if (existingRow) boundIds.push(existingRow.id);
+    if (existingRow) {
+      boundIds.push(existingRow.id);
+      // 旧记录若缺 BIN 原件，补写一份，使后端具备自动刷新能力
+      if (binB64 && !existingRow.bin_b64) {
+        if (dryRun) {
+          console.log(`[dry-run] 将补写 BIN: ${body.name}`);
+        } else {
+          const pr = await fetch(`${BASE}/api/tokens/${existingRow.id}`, {
+            method: "PATCH",
+            headers: { "x-api-key": API_KEY, "Content-Type": "application/json" },
+            body: JSON.stringify({ bin_b64: binB64 }),
+          });
+          if (pr.ok) console.log(`- 补写 BIN: ${body.name} id=${existingRow.id}`);
+          else console.error(`! 补写 BIN 失败 ${body.name}: HTTP ${pr.status}`);
+        }
+      }
+    }
     console.log(`- 跳过(已存在): ${body.name} roleId=${roleId}`);
     continue;
   }

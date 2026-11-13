@@ -9,6 +9,7 @@ import express from "express";
 import cron from "node-cron";
 import { createApiKeyMiddleware } from "./lib/apiKeyAuth.js";
 import { GameClient } from "./lib/gameClient.js";
+import { refreshSessionFromBin } from "./lib/authRefresh.js";
 
 dotenv.config();
 
@@ -257,22 +258,47 @@ async function executeTask(task) {
     }
 
     tokenData.name = token.name;
-    const client = new GameClient(tokenData, token.ws_url);
+    const binB64 = token.bin_b64 || null;
+    let client = new GameClient(tokenData, token.ws_url);
+    let refreshed = false;
 
-    try {
-      await client.connect(15000);
+    const establish = async (cli) => {
+      await cli.connect(15000);
       try {
-        await client.sendWithPromise("role_getroleinfo", {}, 8000);
+        await cli.sendWithPromise("role_getroleinfo", {}, 8000);
         await sleep(500);
       } catch (e) {
         addLog("WARN", "task", `获取角色信息失败 (${token.name})`, {
           error: e.message,
         });
       }
+    };
 
-      const cmdResults = await client.executeBatch(allCommands, 800);
+    const isExpired = (cli, err) =>
+      /expired|fatal/i.test(err?.message || "") ||
+      /expired/i.test(cli?.lastFatal?.error || "");
 
-      for (const r of cmdResults) {
+    const refreshAndReconnect = async () => {
+      const fresh = await refreshSessionFromBin(binB64);
+      await supabase
+        .from("tokens")
+        .update({
+          token: fresh.tokenStr,
+          roleId: fresh.tokenData.roleId,
+          sessId: String(fresh.tokenData.sessId),
+          connId: String(fresh.tokenData.connId),
+        })
+        .eq("id", token.id);
+      tokenData = { ...fresh.tokenData, name: token.name };
+      refreshed = true;
+      client.disconnect();
+      client = new GameClient(tokenData, token.ws_url);
+      await establish(client);
+    };
+
+    const runBatch = async () => {
+      const results = await client.executeBatch(allCommands, 800);
+      for (const r of results) {
         const logLevel = r.success ? "INFO" : "ERROR";
         addLog(
           logLevel,
@@ -288,17 +314,66 @@ async function executeTask(task) {
           r.success ? undefined : r.error,
         );
       }
+      return results;
+    };
+
+    try {
+      await establish(client);
+
+      // 会话过期且持有 BIN：自动换新会话、回写云端并重连一次
+      if (!refreshed && binB64 && isExpired(client, null)) {
+        addLog("WARN", "task", `会话过期，用 BIN 自动刷新: ${token.name}`, {
+          taskId: task.id,
+        });
+        await refreshAndReconnect();
+      }
+
+      let cmdResults = await runBatch();
+
+      // 批处理全部失败且判定过期：再刷新重连后重试一次
+      const allFailed =
+        cmdResults.length > 0 && cmdResults.every((r) => !r.success);
+      if (allFailed && !refreshed && binB64 && isExpired(client, null)) {
+        addLog("WARN", "task", `命令仍未连接，刷新后重试: ${token.name}`, {
+          taskId: task.id,
+        });
+        await refreshAndReconnect();
+        cmdResults = await runBatch();
+      }
     } catch (err) {
-      addLog("ERROR", "task", `执行失败 (${token.name}): ${err.message}`, {
-        taskId: task.id,
-      });
-      await logToDb(
-        task.id,
-        token.name,
-        taskKeys.join(","),
-        "error",
-        err.message,
-      );
+      // 连接阶段就被拒：若过期且有 BIN，刷新重连后再跑一轮
+      if (!refreshed && binB64 && isExpired(client, err)) {
+        try {
+          addLog("WARN", "task", `连接失败，用 BIN 刷新重试: ${token.name}`, {
+            taskId: task.id,
+            error: err.message,
+          });
+          await refreshAndReconnect();
+          await runBatch();
+        } catch (err2) {
+          addLog("ERROR", "task", `执行失败 (${token.name}): ${err2.message}`, {
+            taskId: task.id,
+          });
+          await logToDb(
+            task.id,
+            token.name,
+            taskKeys.join(","),
+            "error",
+            err2.message,
+          );
+        }
+      } else {
+        addLog("ERROR", "task", `执行失败 (${token.name}): ${err.message}`, {
+          taskId: task.id,
+        });
+        await logToDb(
+          task.id,
+          token.name,
+          taskKeys.join(","),
+          "error",
+          err.message,
+        );
+      }
     } finally {
       client.disconnect();
     }
