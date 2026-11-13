@@ -63,3 +63,13 @@ create index if not exists task_logs_created_at_idx on public.task_logs ("create
 alter table public.tokens      enable row level security;
 alter table public.cron_tasks  enable row level security;
 alter table public.task_logs   enable row level security;
+
+-- ---------------------------------------------------------------------
+-- 授予 service_role（后端 secret key）基础表级 DML 权限
+-- RLS 由 service_role 绕过，但仍需显式 GRANT 表级权限，否则报 42501
+-- "permission denied for table ..."
+-- ---------------------------------------------------------------------
+grant usage on schema public to service_role;
+grant select, insert, update, delete on public.tokens      to service_role;
+grant select, insert, update, delete on public.cron_tasks  to service_role;
+grant select, insert, update, delete on public.task_logs   to service_role;
