@@ -1,0 +1,20 @@
+# Render Blueprint 配置 —— XYZW 挂机后端（render-backend）
+# 文档: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: xyzw-backend
+    runtime: node
+    plan: free
+    # 后端代码位于仓库子目录
+    rootDir: render-backend
+    buildCommand: npm install --no-audit --no-fund
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      # PORT 由 Render 自动注入，无需在面板填写
