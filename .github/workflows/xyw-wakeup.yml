@@ -1,0 +1,29 @@
+name: xyw-wakeup
+
+# 每 8 小时 05 分唤醒 Render 后端，执行任务 id=1（12 角色六项领取）
+# GitHub Actions schedule 仅支持 UTC 时区：
+#   UTC 00:05 / 08:05 / 16:05  ==  北京 08:05 / 16:05 / 次日 00:05
+# 恰好覆盖北京时间 00:05 / 08:05 / 16:05 三个时点。
+on:
+  schedule:
+    - cron: "5 */8 * * *"
+  # 允许在 Actions 页面手动点 “Run workflow” 立即触发一次
+  workflow_dispatch: {}
+
+jobs:
+  trigger-daily-task:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/tasks/1/run
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" \
+            -X POST "https://xyzw-web-helper-u6a1.onrender.com/api/tasks/1/run" \
+            -H "x-api-key: ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --max-time 60)
+          echo "HTTP $code"
+          cat /tmp/resp.txt
+          echo
+          test "$code" = "200"
