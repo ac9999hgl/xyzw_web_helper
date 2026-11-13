@@ -333,7 +333,7 @@ async function executeTask(task) {
           addLog(
             "INFO",
             "task",
-            `[${token.name}] 日常积分: points=${dyn.points} 档位=${dyn.rewardsCount} 可领=[${dyn.ids.join(",")}]`,
+            `[${token.name}] 日常积分: points=${dyn.points} 档位=${dyn.rewardsCount} 已领=[${(dyn.claimedIds || []).join(",")}] 可领=[${dyn.ids.join(",")}]`,
             { taskId: task.id },
           );
           for (const r of dyn.results) {

@@ -72,6 +72,13 @@ export async function claimDailyRewards(client) {
   );
   const dailyTask = roleResp?.role?.dailyTask;
   const ids = getClaimableIds(dailyTask, dailyRewards);
+  const claimed = dailyTask?.dailyReward;
+  const claimedIds =
+    claimed && typeof claimed === "object" && !Array.isArray(claimed)
+      ? Object.entries(claimed)
+          .filter(([, v]) => v === true)
+          .map(([k]) => k)
+      : null;
 
   const results = [];
   for (const rewardId of ids) {
@@ -91,6 +98,7 @@ export async function claimDailyRewards(client) {
     ids,
     points: dailyTask?.dailyPoint,
     rewardsCount: dailyRewards.length,
+    claimedIds,
     results,
   };
 }
