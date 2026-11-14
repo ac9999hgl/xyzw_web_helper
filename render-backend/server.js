@@ -97,6 +97,20 @@ const TASK_DEFINITIONS = {
       { cmd: "system_mysharecallback", params: { isSkipShareCard: true, type: 2 }, repeat: 4 },
     ],
   },
+  freeRecruit: {
+    name: "每日免费招募",
+    commands: [
+      { cmd: "hero_recruit", params: { recruitType: 3, recruitNumber: 1 } },
+    ],
+  },
+  freeBuyGold: {
+    name: "每日免费点金",
+    commands: [{ cmd: "system_buygold", params: { buyNum: 1 } }],
+  },
+  friendGift: {
+    name: "赠送好友金币",
+    commands: [{ cmd: "friend_batch", params: {} }],
+  },
   heroRecruit: {
     name: "武将招募",
     commands: [
@@ -119,11 +133,8 @@ const TASK_DEFINITIONS = {
     commands: [{ cmd: "item_openbox", params: { itemId: 2001, number: 10 } }],
   },
   legionSignIn: {
-    name: "军团签到",
-    commands: [
-      { cmd: "legion_getinfo", params: {} },
-      { cmd: "legion_signin", params: {} },
-    ],
+    name: "俱乐部签到",
+    commands: [{ cmd: "legion_signin", params: {} }],
   },
   bossTower: {
     name: "咸王宝库",
