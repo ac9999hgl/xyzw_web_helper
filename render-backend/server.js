@@ -111,6 +111,12 @@ const TASK_DEFINITIONS = {
     name: "赠送好友金币",
     commands: [{ cmd: "friend_batch", params: {} }],
   },
+  freeFish: {
+    name: "免费钓鱼",
+    commands: [
+      { cmd: "artifact_lottery", params: { lotteryNumber: 1, newFree: true, type: 1 }, repeat: 3 },
+    ],
+  },
   heroRecruit: {
     name: "武将招募",
     commands: [
