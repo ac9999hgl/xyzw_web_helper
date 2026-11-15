@@ -10,7 +10,12 @@ import cron from "node-cron";
 import { createApiKeyMiddleware } from "./lib/apiKeyAuth.js";
 import { GameClient } from "./lib/gameClient.js";
 import { refreshSessionFromBin } from "./lib/authRefresh.js";
-import { claimDailyRewards } from "./lib/dailyRewards.js";
+import {
+  claimDailyRewards,
+  claimWeekRewards,
+  claimDailyPoints,
+  claimCards,
+} from "./lib/dailyRewards.js";
 
 dotenv.config();
 
@@ -157,6 +162,51 @@ const TASK_DEFINITIONS = {
       { cmd: "mergebox_claimfreeenergy", params: {} },
       { cmd: "mergebox_openbox", params: {} },
     ],
+  },
+  discountClaim: {
+    name: "每日特惠礼包",
+    commands: [{ cmd: "discount_claimreward", params: { discountId: 1 } }],
+  },
+  dreamKing: {
+    name: "咸王梦境",
+    commands: [{ cmd: "dungeon_selecthero", params: { battleTeam: { 0: 107 } } }],
+  },
+  collectionGift: {
+    name: "珍宝阁免费礼包",
+    commands: [
+      { cmd: "collection_goodslist", params: {} },
+      { cmd: "collection_claimfreereward", params: {} },
+    ],
+  },
+  genieSweep: {
+    name: "灯神一键扫荡",
+    commands: [
+      { cmd: "genie_sweep", params: { genieId: 1 } },
+      { cmd: "genie_sweep", params: { genieId: 2 } },
+      { cmd: "genie_sweep", params: { genieId: 3 } },
+      { cmd: "genie_sweep", params: { genieId: 4 } },
+      { cmd: "genie_sweep", params: { genieId: 5, sweepCnt: 1 } },
+      { cmd: "genie_buysweep", params: {}, repeat: 3 },
+    ],
+  },
+  passClaim: {
+    name: "领取通行证奖励",
+    commands: [{ cmd: "activity_recyclewarorderrewardclaim", params: { actId: 1 } }],
+  },
+  claimWeek: {
+    name: "领取周常积分(动态)",
+    dynamic: true,
+    commands: [],
+  },
+  claimPoint: {
+    name: "领取任务积分(动态)",
+    dynamic: true,
+    commands: [],
+  },
+  claimCard: {
+    name: "领取卡券礼包(动态)",
+    dynamic: true,
+    commands: [],
   },
   dailyBundle: {
     name: "一键日常",
@@ -370,6 +420,88 @@ async function executeTask(task) {
         } catch (e) {
           results.push({
             cmd: "task_claimdailyreward",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：周常积分档位按服务端可领档位逐个领取
+      if (dynamicKeys.includes("claimWeek")) {
+        try {
+          const dyn = await claimWeekRewards(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 周常积分: points=${dyn.points} 可领=[${dyn.ids.join(",")}]`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `task_claimweekreward:${r.rewardId}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+          if (dyn.ids.length === 0) {
+            results.push({
+              cmd: "task_claimweekreward",
+              success: true,
+              note: "无可领取档位",
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "task_claimweekreward",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：领取每个已完成日常任务的任务积分
+      if (dynamicKeys.includes("claimPoint")) {
+        try {
+          const dyn = await claimDailyPoints(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 任务积分: 已领=[${(dyn.claimedIds || []).join(",")}]`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `task_claimdailypoint:${r.taskId}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "task_claimdailypoint",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：领取已持有卡券的每日礼包（免费/周卡/月卡/终身卡）
+      if (dynamicKeys.includes("claimCard")) {
+        try {
+          const dyn = await claimCards(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 卡券礼包: 已领=[${(dyn.claimedIds || []).join(",")}]`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `card_claimreward:${r.cardId}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "card_claimreward",
             success: false,
             error: e.message,
           });

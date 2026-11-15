@@ -99,6 +99,12 @@ const CMD_DEFAULTS = {
   mergebox_openbox: {},
   discount_claimreward: { discountId: 1 },
   collection_claimfreereward: {},
+  collection_goodslist: {},
+  card_claimreward: { cardId: 1 },
+  dungeon_selecthero: { battleTeam: { 0: 107 } },
+  task_claimweekreward: { rewardId: 0 },
+  activity_recyclewarorderrewardclaim: { actId: 1 },
+  genie_buysweep: {},
 };
 
 // 响应→请求命令映射
@@ -144,10 +150,21 @@ const RESP_MAP = {
   mergebox_openboxresp: "mergebox_openbox",
   discount_claimrewardresp: "discount_claimreward",
   collection_claimfreerewardresp: "collection_claimfreereward",
+  collection_goodslistresp: "collection_goodslist",
+  task_claimweekrewardresp: "task_claimweekreward",
+  activity_warorderclaimresp: [
+    "activity_warorderrewardclaim",
+    "activity_warordertaskclaim",
+    "activity_recyclewarorderrewardclaim",
+  ],
   syncrewardresp: [
     "system_buygold",
     "system_signinreward",
     "discount_claimreward",
+    "card_claimreward",
+    "genie_sweep",
+    "genie_buysweep",
+    "dungeon_selecthero",
   ],
   syncpushresp: ["system_mysharecallback"],
   syncresp: ["system_mysharecallback", "task_claimdailypoint"],
