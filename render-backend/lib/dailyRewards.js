@@ -228,3 +228,108 @@ export async function claimFreeBuyGold(client) {
   }
   return { remaining, results };
 }
+
+// 周日~周六 每日BOSS（咸王考验）bossId 映射，对齐前端 getTodayBossId
+const DAY_BOSS_MAP = [9904, 9905, 9901, 9902, 9903, 9904, 9905];
+
+function getTodayBossId(dailyTime) {
+  const ts = Number(dailyTime);
+  const dayOfWeek = Number.isFinite(ts)
+    ? new Date((ts + 8 * 3600) * 1000).getUTCDay()
+    : new Date().getUTCDay();
+  return DAY_BOSS_MAP[dayOfWeek] ?? DAY_BOSS_MAP[0];
+}
+
+/**
+ * 咸王考验（每日BOSS，fight_startboss）。
+ * 对齐前端 dailyTaskRunner 620-643：按 dailyTime 换算今日 bossId，
+ * 先检查/切换到 BOSS 阵容 1，再挑战 3 次。
+ * 注意区分：fight_startlegionboss=军团BOSS（俱乐部），dungeon_selecthero=咸王梦境。
+ */
+export async function runDailyBoss(client) {
+  const role = await fetchRole(client);
+  const dailyTime = role.dailyTask?.dailyTime;
+  const bossId = getTodayBossId(dailyTime);
+  const results = [];
+
+  // 阵容检查：记录当前阵容，非 1 则切到 BOSS 阵容 1（对齐 switchToFormationIfNeeded）
+  let originalFormation = null;
+  let formationChanged = false;
+  try {
+    const teamInfo = await client.sendWithPromise(
+      "presetteam_getinfo",
+      {},
+      10000,
+    );
+    const current = teamInfo?.presetTeamInfo?.useTeamId;
+    if (Number.isInteger(current)) {
+      originalFormation = current;
+      if (current !== 1) {
+        await client.sendWithPromise(
+          "presetteam_saveteam",
+          { teamId: 1 },
+          10000,
+        );
+        formationChanged = true;
+        results.push({
+          cmd: "presetteam_saveteam",
+          success: true,
+          teamId: 1,
+          from: current,
+        });
+      }
+    }
+  } catch (e) {
+    results.push({
+      cmd: "presetteam_getinfo",
+      success: false,
+      error: e.message,
+    });
+  }
+
+  for (let i = 0; i < 3; i++) {
+    try {
+      await client.sendWithPromise(
+        "fight_startboss",
+        { bossId },
+        12000,
+      );
+      results.push({
+        cmd: `fight_startboss:${i + 1}`,
+        success: true,
+        bossId,
+      });
+    } catch (e) {
+      results.push({
+        cmd: `fight_startboss:${i + 1}`,
+        success: false,
+        error: e.message,
+        bossId,
+      });
+    }
+    await sleep(500);
+  }
+
+  // 打完切回初始阵容（对齐前端 finally 中的阵容还原）
+  if (formationChanged && Number.isInteger(originalFormation)) {
+    try {
+      await client.sendWithPromise(
+        "presetteam_saveteam",
+        { teamId: originalFormation },
+        10000,
+      );
+      results.push({
+        cmd: "presetteam_restore",
+        success: true,
+        teamId: originalFormation,
+      });
+    } catch (e) {
+      results.push({
+        cmd: "presetteam_restore",
+        success: false,
+        error: e.message,
+      });
+    }
+  }
+  return { bossId, results };
+}

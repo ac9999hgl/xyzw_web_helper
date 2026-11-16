@@ -16,6 +16,7 @@ import {
   claimDailyPoints,
   claimCards,
   claimFreeBuyGold,
+  runDailyBoss,
 } from "./lib/dailyRewards.js";
 
 dotenv.config();
@@ -172,6 +173,11 @@ const TASK_DEFINITIONS = {
   dreamKing: {
     name: "咸王梦境",
     commands: [{ cmd: "dungeon_selecthero", params: { battleTeam: { 0: 107 } } }],
+  },
+  dailyBoss: {
+    name: "咸王考验(每日BOSS)",
+    dynamic: true,
+    commands: [],
   },
   collectionGift: {
     name: "珍宝阁免费礼包",
@@ -415,6 +421,27 @@ async function executeTask(task) {
         } catch (e) {
           results.push({
             cmd: "system_buygold",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：咸王考验（每日BOSS fight_startboss），按今日 bossId 挑战 3 次
+      if (dynamicKeys.includes("dailyBoss")) {
+        try {
+          const dyn = await runDailyBoss(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 咸王考验: bossId=${dyn.bossId}`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({ cmd: r.cmd, success: r.success, error: r.error });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "fight_startboss",
             success: false,
             error: e.message,
           });
