@@ -242,8 +242,8 @@ function getTodayBossId(dailyTime) {
 
 /**
  * 咸王考验（每日BOSS，fight_startboss）。
- * 对齐前端 dailyTaskRunner 620-643：按 dailyTime 换算今日 bossId，
- * 先检查/切换到 BOSS 阵容 1，再挑战 3 次。
+ * 按 dailyTime 换算今日 bossId，先检查/切换到 BOSS 阵容 1，
+ * 挑战 1 次后切回初始阵容。
  * 注意区分：fight_startlegionboss=军团BOSS（俱乐部），dungeon_selecthero=咸王梦境。
  */
 export async function runDailyBoss(client) {
@@ -287,27 +287,17 @@ export async function runDailyBoss(client) {
     });
   }
 
-  for (let i = 0; i < 3; i++) {
-    try {
-      await client.sendWithPromise(
-        "fight_startboss",
-        { bossId },
-        12000,
-      );
-      results.push({
-        cmd: `fight_startboss:${i + 1}`,
-        success: true,
-        bossId,
-      });
-    } catch (e) {
-      results.push({
-        cmd: `fight_startboss:${i + 1}`,
-        success: false,
-        error: e.message,
-        bossId,
-      });
-    }
-    await sleep(500);
+  // 挑战 1 次（按需求改为单次；前端默认为 3 次）
+  try {
+    await client.sendWithPromise("fight_startboss", { bossId }, 12000);
+    results.push({ cmd: "fight_startboss", success: true, bossId });
+  } catch (e) {
+    results.push({
+      cmd: "fight_startboss",
+      success: false,
+      error: e.message,
+      bossId,
+    });
   }
 
   // 打完切回初始阵容（对齐前端 finally 中的阵容还原）
