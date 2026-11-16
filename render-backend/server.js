@@ -426,7 +426,7 @@ async function executeTask(task) {
           });
         }
       }
-      // 动态任务：咸王考验（每日BOSS fight_startboss），按今日 bossId 挑战 3 次
+      // 动态任务：咸王考验（每日BOSS fight_startboss），按今日 bossId 挑战 1 次
       if (dynamicKeys.includes("dailyBoss")) {
         try {
           const dyn = await runDailyBoss(client);
