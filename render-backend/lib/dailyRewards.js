@@ -192,3 +192,39 @@ export async function claimCards(client) {
   }
   return { claimedIds, results };
 }
+
+/**
+ * 每日免费点金：按服务器任务 6（completeCondition=6）的剩余次数点金。
+ * 对齐前端 dailyTaskRunner.js 388-403：任务已完成（complete=-1）或进度达标则不再发送，
+ * 避免自然日内二次启动时越过免费额度；免费次数内不消耗金币，超出额度由服务端拒绝。
+ */
+export async function claimFreeBuyGold(client) {
+  const cfg = await fetchTaskConfig(client);
+  const role = await fetchRole(client);
+  const dailyTask = role.dailyTask || {};
+  const complete = dailyTask.complete || {};
+
+  const task = cfg.tasks.find((t) => t.completeCondition === 6);
+  const required =
+    Number(task?.completeValue) > 0 ? Number(task.completeValue) : 3;
+  const value = Object.hasOwn(complete, 6) ? complete[6] : 0;
+  const claimed = value === -1;
+  const progress = claimed ? required : value;
+  const remaining = Math.max(required - progress, 0);
+
+  const results = [];
+  for (let i = 0; i < remaining; i++) {
+    try {
+      await client.sendWithPromise(
+        "system_buygold",
+        { buyNum: 1 },
+        8000,
+      );
+      results.push({ index: i + 1, success: true });
+    } catch (e) {
+      results.push({ index: i + 1, success: false, error: e.message });
+    }
+    await sleep(500);
+  }
+  return { remaining, results };
+}

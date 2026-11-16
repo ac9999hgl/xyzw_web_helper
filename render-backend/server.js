@@ -15,6 +15,7 @@ import {
   claimWeekRewards,
   claimDailyPoints,
   claimCards,
+  claimFreeBuyGold,
 } from "./lib/dailyRewards.js";
 
 dotenv.config();
@@ -110,7 +111,8 @@ const TASK_DEFINITIONS = {
   },
   freeBuyGold: {
     name: "每日免费点金",
-    commands: [{ cmd: "system_buygold", params: { buyNum: 1 } }],
+    dynamic: true,
+    commands: [],
   },
   friendGift: {
     name: "赠送好友金币",
@@ -393,7 +395,57 @@ async function executeTask(task) {
       if (allCommands.length > 0) {
         results.push(...(await client.executeBatch(allCommands, 800)));
       }
-      // 动态任务：日常积分奖励按服务端可领档位逐个领取
+      // 动态任务：每日免费点金（按服务器剩余次数执行，任务已完成则不再发送）
+      if (dynamicKeys.includes("freeBuyGold")) {
+        try {
+          const dyn = await claimFreeBuyGold(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 免费点金: 剩余=${dyn.remaining} 次`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `system_buygold:${r.index}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "system_buygold",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：先领取每个已完成日常任务的任务积分（攒 dailyPoint/weekPoint，宝箱档位据此判定）
+      if (dynamicKeys.includes("claimPoint")) {
+        try {
+          const dyn = await claimDailyPoints(client);
+          addLog(
+            "INFO",
+            "task",
+            `[${token.name}] 任务积分: 已领=[${(dyn.claimedIds || []).join(",")}]`,
+            { taskId: task.id },
+          );
+          for (const r of dyn.results) {
+            results.push({
+              cmd: `task_claimdailypoint:${r.taskId}`,
+              success: r.success,
+              error: r.error,
+            });
+          }
+        } catch (e) {
+          results.push({
+            cmd: "task_claimdailypoint",
+            success: false,
+            error: e.message,
+          });
+        }
+      }
+      // 动态任务：日常积分奖励（任务积分到账、点位刷新后，按服务端可领档位逐个领取）
       if (dynamicKeys.includes("claimDaily")) {
         try {
           const dyn = await claimDailyRewards(client);
@@ -452,31 +504,6 @@ async function executeTask(task) {
         } catch (e) {
           results.push({
             cmd: "task_claimweekreward",
-            success: false,
-            error: e.message,
-          });
-        }
-      }
-      // 动态任务：领取每个已完成日常任务的任务积分
-      if (dynamicKeys.includes("claimPoint")) {
-        try {
-          const dyn = await claimDailyPoints(client);
-          addLog(
-            "INFO",
-            "task",
-            `[${token.name}] 任务积分: 已领=[${(dyn.claimedIds || []).join(",")}]`,
-            { taskId: task.id },
-          );
-          for (const r of dyn.results) {
-            results.push({
-              cmd: `task_claimdailypoint:${r.taskId}`,
-              success: r.success,
-              error: r.error,
-            });
-          }
-        } catch (e) {
-          results.push({
-            cmd: "task_claimdailypoint",
             success: false,
             error: e.message,
           });
