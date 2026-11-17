@@ -263,7 +263,23 @@ async function loadTokens() {
 }
 
 // ==================== 任务执行引擎 ====================
+// 防重入锁：同一任务已有实例在跑时，跳过重复触发，避免并发重复消耗每日 BOSS/点金/钓鱼次数
+const runningTaskIds = new Set();
+
 async function executeTask(task) {
+  if (runningTaskIds.has(task.id)) {
+    addLog("WARN", "task", `任务已在运行，跳过重复触发: ${task.name}`, { taskId: task.id });
+    return;
+  }
+  runningTaskIds.add(task.id);
+  try {
+    await runTaskOnce(task);
+  } finally {
+    runningTaskIds.delete(task.id);
+  }
+}
+
+async function runTaskOnce(task) {
   addLog("INFO", "task", `开始执行任务: ${task.name}`, { taskId: task.id });
 
   // 兼容旧字段 token_ids 和新字段 selected_tokens
@@ -853,6 +869,9 @@ app.post("/api/tasks/:id/run", async (req, res) => {
     .eq("id", req.params.id)
     .single();
   if (!task) return res.status(404).json({ error: "任务不存在" });
+  if (runningTaskIds.has(task.id)) {
+    return res.status(409).json({ status: "already_running", task: task.name });
+  }
   executeTask(task).catch((err) =>
     addLog("ERROR", "api", `手动执行失败: ${err.message}`),
   );
