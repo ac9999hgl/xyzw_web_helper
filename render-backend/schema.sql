@@ -43,6 +43,9 @@ create table if not exists public.cron_tasks (
   "created_at"  timestamptz default now()
 );
 
+-- 已存在的旧库补列（幂等）：记录上一轮开始执行时间，供 cooldown 跨重启判断
+alter table public.cron_tasks add column if not exists "last_run_at" timestamptz;
+
 -- ---------------------------------------------------------------------
 -- 3. task_logs：任务执行日志
 -- ---------------------------------------------------------------------

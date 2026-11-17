@@ -268,14 +268,26 @@ const runningTaskIds = new Set();
 
 // 时间锁（cooldown）：距上一轮开始执行不足冷却时长时，任何来源触发都跳过；force 可绕过
 const COOLDOWN_MS = 7.5 * 60 * 60 * 1000; // 7.5 小时
-const lastRunAt = new Map(); // taskId -> number（上一轮开始执行时间戳 ms，内存态，重启清空）
+const lastRunAt = new Map(); // taskId -> number（上一轮开始时间戳 ms；内存缓存，冷启动后从库 last_run_at 兜底）
 
 async function executeTask(task, options = {}) {
   const force = options.force === true;
   const now = Date.now();
 
-  // 1) 时间锁：冷却内跳过（force 绕过）；失败/中断的轮次也占冷却
-  const last = lastRunAt.get(task.id);
+  // 1) 时间锁：内存优先；冷启动后内存为空，从库 last_run_at 兜底读取
+  let last = lastRunAt.get(task.id);
+  if (last == null) {
+    try {
+      const { data } = await supabase
+        .from("cron_tasks")
+        .select("last_run_at")
+        .eq("id", task.id)
+        .single();
+      if (data?.last_run_at) last = new Date(data.last_run_at).getTime();
+    } catch (e) {
+      addLog("WARN", "task", `读取上次执行时间失败: ${e.message}`, { taskId: task.id });
+    }
+  }
   if (!force && last != null) {
     const elapsed = now - last;
     if (elapsed < COOLDOWN_MS) {
@@ -291,8 +303,16 @@ async function executeTask(task, options = {}) {
     return { status: "already_running", task: task.name };
   }
 
-  // 记录本轮开始时间，再上并发锁
+  // 记录本轮开始时间（内存 + 库，失败/中断也占冷却），再上并发锁
   lastRunAt.set(task.id, now);
+  try {
+    await supabase
+      .from("cron_tasks")
+      .update({ last_run_at: new Date(now).toISOString() })
+      .eq("id", task.id);
+  } catch (e) {
+    addLog("WARN", "task", `写入上次执行时间失败: ${e.message}`, { taskId: task.id });
+  }
   runningTaskIds.add(task.id);
   try {
     await runTaskOnce(task);
@@ -682,10 +702,6 @@ async function runTaskOnce(task) {
     await sleep(2000);
   }
 
-  await supabase
-    .from("cron_tasks")
-    .update({ last_run_at: new Date().toISOString() })
-    .eq("id", task.id);
   addLog("INFO", "task", `任务完成: ${task.name}`, { taskId: task.id });
 }
 
