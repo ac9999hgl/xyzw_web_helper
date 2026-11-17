@@ -870,6 +870,7 @@ app.post("/api/tasks/:id/run", async (req, res) => {
     .single();
   if (!task) return res.status(404).json({ error: "任务不存在" });
   if (runningTaskIds.has(task.id)) {
+    addLog("WARN", "api", `任务运行中，拒绝重复触发: ${task.name}`, { taskId: task.id });
     return res.status(409).json({ status: "already_running", task: task.name });
   }
   executeTask(task).catch((err) =>
