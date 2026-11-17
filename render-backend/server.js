@@ -266,17 +266,40 @@ async function loadTokens() {
 // 防重入锁：同一任务已有实例在跑时，跳过重复触发，避免并发重复消耗每日 BOSS/点金/钓鱼次数
 const runningTaskIds = new Set();
 
-async function executeTask(task) {
+// 时间锁（cooldown）：距上一轮开始执行不足冷却时长时，任何来源触发都跳过；force 可绕过
+const COOLDOWN_MS = 7.5 * 60 * 60 * 1000; // 7.5 小时
+const lastRunAt = new Map(); // taskId -> number（上一轮开始执行时间戳 ms，内存态，重启清空）
+
+async function executeTask(task, options = {}) {
+  const force = options.force === true;
+  const now = Date.now();
+
+  // 1) 时间锁：冷却内跳过（force 绕过）；失败/中断的轮次也占冷却
+  const last = lastRunAt.get(task.id);
+  if (!force && last != null) {
+    const elapsed = now - last;
+    if (elapsed < COOLDOWN_MS) {
+      const remainMs = COOLDOWN_MS - elapsed;
+      addLog("WARN", "task", `冷却中，跳过触发: ${task.name}（距上一轮 ${Math.round(elapsed / 60000)} 分钟，剩余约 ${Math.round(remainMs / 60000)} 分钟）`, { taskId: task.id });
+      return { status: "cooldown", remainMs };
+    }
+  }
+
+  // 2) 并发锁：上一轮还在跑则跳过
   if (runningTaskIds.has(task.id)) {
     addLog("WARN", "task", `任务已在运行，跳过重复触发: ${task.name}`, { taskId: task.id });
-    return;
+    return { status: "already_running", task: task.name };
   }
+
+  // 记录本轮开始时间，再上并发锁
+  lastRunAt.set(task.id, now);
   runningTaskIds.add(task.id);
   try {
     await runTaskOnce(task);
   } finally {
     runningTaskIds.delete(task.id);
   }
+  return { status: "running", task: task.name };
 }
 
 async function runTaskOnce(task) {
@@ -869,14 +892,21 @@ app.post("/api/tasks/:id/run", async (req, res) => {
     .eq("id", req.params.id)
     .single();
   if (!task) return res.status(404).json({ error: "任务不存在" });
-  if (runningTaskIds.has(task.id)) {
-    addLog("WARN", "api", `任务运行中，拒绝重复触发: ${task.name}`, { taskId: task.id });
-    return res.status(409).json({ status: "already_running", task: task.name });
+
+  // force=1（query 或 x-force 头）可绕过 cooldown 时间锁，用于手动强制补跑
+  const force = req.query.force === "1" || req.header("x-force") === "1";
+
+  let result;
+  try {
+    result = await executeTask(task, { force });
+  } catch (err) {
+    addLog("ERROR", "api", `手动执行失败: ${err.message}`, { taskId: task.id });
+    return res.status(500).json({ error: err.message });
   }
-  executeTask(task).catch((err) =>
-    addLog("ERROR", "api", `手动执行失败: ${err.message}`),
-  );
-  res.json({ status: "running", task: task.name });
+  if (result?.status === "already_running") {
+    return res.status(409).json(result);
+  }
+  res.json(result || { status: "running", task: task.name });
 });
 
 app.get("/api/logs", (req, res) => {
