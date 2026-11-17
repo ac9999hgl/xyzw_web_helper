@@ -43,10 +43,12 @@ from vault.decrypted_secrets
 where name in ('render_backend_url', 'render_api_key');
 
 -- ---------------------------------------------------------------------
--- 2. 建定时任务（幂等：先按名注销旧任务，再重建）
+-- 2. 建定时任务
+--    注意：cron.unschedule 在任务不存在时会报
+--    "could not find valid entry for job"，并中断同批次后续语句。
+--    首次部署：直接跑下面的 cron.schedule，先不要带 unschedule；
+--    重建任务时：先单独执行 cron.unschedule，确认不报错后再 schedule。
 -- ---------------------------------------------------------------------
-select cron.unschedule('xyzw-daily-task-1');
-
 select cron.schedule(
   'xyzw-daily-task-1',
   '5 */8 * * *',                                  -- UTC，每 8 小时第 5 分
