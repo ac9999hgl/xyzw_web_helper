@@ -64,7 +64,7 @@ select cron.schedule(
                       where name = 'render_api_key')
       ),
       body := '{}'::jsonb,
-      timeout_milliseconds := 60000
+      timeout_milliseconds := 120000
     ) as request_id;
   $$
 );
