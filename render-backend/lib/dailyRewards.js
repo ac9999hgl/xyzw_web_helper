@@ -19,14 +19,26 @@ async function fetchTaskConfig(client) {
   );
   const version = verResp?.dataBundleVer;
   if (typeof version !== "string" || !/^[\w-]+$/.test(version)) {
-    throw new Error("服务器未提供有效的任务配置版本");
+    throw new Error(`服务器未提供有效的任务配置版本（实际: ${JSON.stringify(version)}）`);
   }
   if (configCache.has(version)) return configCache.get(version);
 
   const url = `https://xxz-xyzw-res.hortorgames.com/data/${version}/config.json`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  if (!resp.ok) throw new Error("官方任务配置读取失败");
-  const config = await resp.json();
+  let resp;
+  try {
+    resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  } catch (e) {
+    throw new Error(`官方任务配置请求异常: version=${version} url=${url} 错误=${e.message}`);
+  }
+  if (!resp.ok) {
+    throw new Error(`官方任务配置读取失败: version=${version} url=${url} HTTP=${resp.status}`);
+  }
+  let config;
+  try {
+    config = await resp.json();
+  } catch (e) {
+    throw new Error(`官方任务配置解析失败: version=${version} url=${url} 错误=${e.message}`);
+  }
 
   const tasks = Object.values(config?.DailyTaskConf ?? {}).filter(
     (t) => Number.isInteger(t.id) && Number.isInteger(t.completeCondition),
