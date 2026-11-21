@@ -11,19 +11,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 按配置版本缓存任务与档位配置，避免每角色重复拉取
 const configCache = new Map();
 
-async function fetchTaskConfig(client) {
-  const verResp = await client.sendWithPromise(
-    "system_getdatabundlever",
-    {},
-    15000,
-  );
-  const version = verResp?.dataBundleVer;
-  if (typeof version !== "string" || !/^[\w-]+$/.test(version)) {
-    throw new Error(`服务器未提供有效的任务配置版本（实际: ${JSON.stringify(version)}）`);
-  }
-  if (configCache.has(version)) return configCache.get(version);
+const RES_BASE = "https://xxz-xyzw-res.hortorgames.com/data";
 
-  const url = `https://xxz-xyzw-res.hortorgames.com/data/${version}/config.json`;
+// 拉取资源站公布的最新数据包版本号
+async function loadLatestVersion() {
+  const resp = await fetch(`${RES_BASE}/version.json`, {
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!resp.ok) throw new Error(`version.json HTTP=${resp.status}`);
+  const meta = await resp.json();
+  const latest = meta?.version;
+  if (typeof latest !== "string" || !/^[\w-]+$/.test(latest)) {
+    throw new Error(`version.json 版本无效: ${JSON.stringify(latest)}`);
+  }
+  return latest;
+}
+
+// 按指定版本拉取并解析任务/档位配置
+async function fetchConfigByVersion(version) {
+  const url = `${RES_BASE}/${version}/config.json`;
   let resp;
   try {
     resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
@@ -31,7 +37,9 @@ async function fetchTaskConfig(client) {
     throw new Error(`官方任务配置请求异常: version=${version} url=${url} 错误=${e.message}`);
   }
   if (!resp.ok) {
-    throw new Error(`官方任务配置读取失败: version=${version} url=${url} HTTP=${resp.status}`);
+    const err = new Error(`官方任务配置读取失败: version=${version} url=${url} HTTP=${resp.status}`);
+    err.httpStatus = resp.status;
+    throw err;
   }
   let config;
   try {
@@ -49,9 +57,50 @@ async function fetchTaskConfig(client) {
   const weeklyRewards = Object.values(config?.WeekLimitConf ?? {}).filter(
     (r) => Number.isInteger(r.id) && Number.isFinite(r.limit) && r.limit >= 0,
   );
-  const cfg = { tasks, dailyRewards, weeklyRewards };
-  configCache.set(version, cfg);
-  return cfg;
+  return { cfg: { tasks, dailyRewards, weeklyRewards }, version };
+}
+
+async function fetchTaskConfig(client) {
+  const verResp = await client.sendWithPromise(
+    "system_getdatabundlever",
+    {},
+    15000,
+  );
+  const reportedVersion = verResp?.dataBundleVer;
+  const versionValid =
+    typeof reportedVersion === "string" && /^[\w-]+$/.test(reportedVersion);
+
+  if (versionValid && configCache.has(reportedVersion)) {
+    return configCache.get(reportedVersion);
+  }
+
+  let loaded = null;
+  let primaryError = null;
+  if (versionValid) {
+    try {
+      loaded = await fetchConfigByVersion(reportedVersion);
+    } catch (e) {
+      primaryError = e;
+    }
+  }
+
+  if (!loaded) {
+    // 游戏服上报的版本在资源站已不存在（旧目录被清理，404）或拉取失败，
+    // 回退到 version.json 公布的最新版本再拉一次；任务配置为全局静态表，按线上最新版对齐。
+    let latest;
+    try {
+      latest = await loadLatestVersion();
+    } catch (e) {
+      throw new Error(
+        `任务配置回退最新版也失败: 上报版本=${JSON.stringify(reportedVersion)} 原始错误=${primaryError?.message ?? "无"} 回退错误=${e.message}`,
+      );
+    }
+    if (latest === reportedVersion) throw primaryError;
+    loaded = await fetchConfigByVersion(latest);
+  }
+
+  configCache.set(loaded.version, loaded.cfg);
+  return loaded.cfg;
 }
 
 /**
